@@ -39,11 +39,11 @@ function [lE, H, ec, Cc, lambda, s]  = heatfluxes(ra, rs, Tc, ea, Ta, e_to_q, PS
 
     lambda      = (2.501 - 0.002361 * Tc) * 1E6;  %      [J kg-1]  Evapor. heat (J kg-1)
     ei          = equations.satvap(Tc) .* exp(1E-3 * PSI * MH2O / R ./ (Tc + 273.15));
-    s = s_fun(ei, Tc);
+    s           = s_fun(ei, Tc);
     qi          = ei .* e_to_q;
     qa          = ea .* e_to_q;
 
     lE          = rhoa ./ (ra + rs) .* lambda .* (qi - qa);   % [W m-2]   Latent heat flux
     H           = (rhoa * cp) ./ ra .* (Tc - Ta);           % [W m-2]   Sensible heat flux
-    ec          = ea + (ei - ea) * ra ./ (ra + rs);         % [W m-2] vapour pressure at the leaf surface
+    ec          = ea + (ei - ea) .* ra ./ (ra + rs);         % [W m-2] vapour pressure at the leaf surface
     Cc          = Ca - (Ca - Ci) .* ra ./ (ra + rs);        % [umol m-2 s-1] CO2 concentration at the leaf surface

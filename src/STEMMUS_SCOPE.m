@@ -14,7 +14,7 @@
 %     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 %     GNU General Public License for more details.
 %
-%     You should have received a copy of the GNU General Public License
+%     You should have received a copy of the GNU General Public    License
 %     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 % Load in required Octave packages if STEMMUS-SCOPE is being run in Octave:
@@ -25,7 +25,7 @@ end
 
 % set CFG to a path if it is not defined
 if exist('CFG', 'var') == 0
-    CFG = '../config_file_crib.txt';
+    CFG = "/home/khanalp/STEMMUS_SCOPE_model/STEMMUS_SCOPE_old/STEMMUS_SCOPE/ICOS_sites/IT-Lav/input/IT-Lav_2025-07-01-1331/IT-Lav_2025-07-01-1331_config.txt";
 end
 
 % set runMode to "full" if it is not defined
@@ -371,9 +371,13 @@ if strcmp(bmiMode, 'update') || strcmp(runMode, 'full')
         end
     end
 
+    WaterPotential = struct('leaf', []);
+    
     % Will do one timestep in "update mode", and run until the end if in "full run" mode.
     while KT < endTime
+        
         KT = KT + 1;  % Counting Number of timesteps
+        warning('Timestep = %d', KT)
         if KT > 1 && Delt_t > (TEND - TIME)
             Delt_t = TEND - TIME;  % If Delt_t is changed due to excessive change of state variables, the judgement of the last time step is excuted.
         end
@@ -498,7 +502,7 @@ if strcmp(bmiMode, 'update') || strcmp(runMode, 'full')
                         [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFactor, WaterPotential] ...
                             = ebal(iter, options, spectral, rad, gap,  ...
                                    leafopt, angles, meteo, soil, canopy, leafbio, xyt, k, profiles, Delt_t, ...
-                                   Rl, SoilVariables, VanGenuchten, InitialValues, ModelSettings, GroundwaterSettings);
+                                   Rl, SoilVariables, VanGenuchten, InitialValues, ModelSettings, GroundwaterSettings,WaterPotential,KT);
                         if options.calc_fluor
                             if options.calc_vert_profiles
                                 [rad, profiles] = RTMf(spectral, rad, soil, leafopt, canopy, gap, angles, profiles);

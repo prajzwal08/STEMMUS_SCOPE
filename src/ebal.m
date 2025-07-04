@@ -1,7 +1,8 @@
-function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFactor, WaterPotential]             ...
+% this function is edited for multi layer resistance by prajzwal on APril 11, 2025.
+function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFactor,WaterPotential]             ...
          = ebal(iter, options, spectral, rad, gap, leafopt,  ...
                 angles, meteo, soil, canopy, leafbio, xyt, k, profiles, Delt_t, ...
-                Rl, SoilVariables, VanGenuchten, InitialValues, ModelSettings, GroundwaterSettings)
+                Rl, SoilVariables, VanGenuchten, InitialValues, ModelSettings, GroundwaterSettings,WaterPotential,KT)
 
     %{
         function ebal.m calculates the energy balance of a vegetated surface
@@ -99,8 +100,8 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     Wc              = iter.Wc;
 
     CONT            = 1;              %           is 0 when the calculation has finished
-    es_fun      = @(T)6.107 * 10.^(7.5 .* T ./ (237.3 + T));
-    s_fun       = @(es, T) es * 2.3026 * 7.5 * 237.3 ./ (237.3 + T).^2;
+    es_fun      = @(T)6.107 * 10.^(7.5 .* T ./ (237.3 + T)); % saturation vapor pressure
+    s_fun       = @(es, T) es * 2.3026 * 7.5 * 237.3 ./ (237.3 + T).^2; % slope of saturation vapor pressure
     t               = xyt.t(k);
     Ta              = meteo.Ta;
     ea              = meteo.ea;
@@ -108,27 +109,27 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     Ts              = soil.Ts;
     p               = meteo.p;
     if options.soil_heat_method < 2 && options.simulation == 1
-        if k > 1
+        if k > 1                                % 
             Deltat          = Delt_t;           %           Duration of the time interval (s)
         else
             Deltat          = Delt_t;
         end
-        x       = [1:12; 1:12]' .* Deltat;
-        Tsold = soil.Tsold;
+        x       = [1:12; 1:12]' .* Deltat; %% ?
+        Tsold = soil.Tsold; %% Need to check this is this. 
     end
 
     nl = canopy.nlayers;
 
-    Rnuc  = rad.Rnuc;
-    GAM   = soil.GAM;
-    Tch   = (Ta + .1) * ones(nl, 1);       %           Leaf temperature (shaded leaves)
-    Tcu   = (Ta + .3) * ones(size(Rnuc)); %           Leaf tempeFrature (sunlit leaves)
+    Rnuc  = rad.Rnuc;  % Radiation on sunlit leaves
+    GAM   = soil.GAM; % what is this? (Taken from input)
+    Tch   = (Ta + .1) * ones(nl, 1);       %           Leaf temperature (shaded leaves) % why random .1 added?
+    Tcu   = (Ta + .3) * ones(size(Rnuc)); %           Leaf tempeFrature (sunlit leaves) % why random .3 added?
     ech   = ea * ones(nl, 1);            %           Leaf H2O (shaded leaves)
     ecu   = ea * ones(size(Rnuc));      %           Leaf H2O (sunlit leaves)
     Cch   = Ca * ones(nl, 1);            %           Leaf CO2 (shaded leaves)
     Ccu   = Ca * ones(size(Rnuc));      %           Leaf CO2 (sunlit leaves)
     % Tsold = Ts;                       %           Soil temperature of the previous time step
-    L     = -1;                       %           Monin-Obukhov length
+    L     = -1;                       %           Monin-Obukhov length (Is fixed???)) 
     % load Constants
     Constants = io.define_constants();
 
@@ -139,21 +140,21 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     g     = Constants.g / 100; % [m s-2] Gravity acceleration
     kappa = Constants.kappa;
     sigmaSB = Constants.sigmaSB;
-    Ps    = gap.Ps;
-    nl    = canopy.nlayers;
+    Ps    = gap.Ps; % output from RTMo
+    nl    = canopy.nlayers; % why again?
 
     SoilHeatMethod = options.soil_heat_method;
     if ~(options.simulation == 1)
         SoilHeatMethod = 2;
     end
 
-    kV   = canopy.kV;
-    xl   = canopy.xl;
+    kV   = canopy.kV;  %% what is kV? %% kV is extinction coefficient for Vcmax in the vertical (maximum at the top). 0 for uniform Vcmax
+    xl   = canopy.xl; % division into layer
 
     % other preparations
-    e_to_q          = MH2O / Mair ./ p;             %           Conversion of vapour pressure [Pa] to absolute humidity [kg kg-1]
+    e_to_q          = MH2O / Mair ./ p;  % This is mixing ratio, when it multiplies e, we get vapor pressure.           %           Conversion of vapour pressure [Pa] to absolute humidity [kg kg-1]
     Fs              = [1 - Ps(end), Ps(end)];      %           Matrix containing values for 1-Ps and Ps of soil
-    Fc              = (1 - Ps(1:end - 1))' / nl;      %           Matrix containing values for Ps of canopy
+    Fc              = (1 - Ps(1:end - 1))' / nl;      %           Matrix containing values for Ps of canopy, why divide by nl?
 
     if ~exist('SMCsf', 'var')
         SMCsf = 1;
@@ -163,15 +164,26 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
 
     fVh             = exp(kV * xl(1:end - 1));
     fVu             = ones(13, 36, nl);
+    % Plot
 
     for i = 1:nl
         fVu(:, :, i) = fVh(i);
     end
 
     LAI = canopy.LAI;
+
+    %  Get the last time step value (if available)
+    % if isfield(WaterPotential, 'leaf') && isempty(WaterPotential.leaf)
+    %    PSI = 0;  % Default if no previous step
+    % else
+    %     PSI = WaterPotential.leaf(end);  % Access last value
+    % end
+
     PSI = 0;
 
     [bbx] = Max_Rootdepth(InitialValues.bbx, ModelSettings);
+                % Reverse BBX
+  
     [PSIs, rsss, rrr, rxx] = calc_rsoil(Rl, ModelSettings, SoilVariables, VanGenuchten, bbx, GroundwaterSettings);
     [sfactor] = calc_sfactor(Rl, VanGenuchten.Theta_s, VanGenuchten.Theta_r, SoilVariables.Theta_LL, bbx, Ta, VanGenuchten.Theta_f);
     PSIss = PSIs(ModelSettings.NL, 1);
@@ -180,12 +192,12 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     % 'Energy balance loop (Energy balance and radiative transfer)
 
     while CONT                          % while energy balance does not close
-
+        
         % 2.1. Net radiation of the components
         % Thermal radiative transfer model for vegetation emission (with Stefan-Boltzman's equation)
         rad  = RTMt_sb(spectral, rad, soil, leafopt, canopy, gap, angles, Tcu, Tch, Ts(2), Ts(1), 1);
         % Add net radiation of (1) solar and sky and (2) thermal emission model
-
+        
         Rnhct = rad.Rnhct;
         Rnuct = rad.Rnuct;
         Rnhst = rad.Rnhst;
@@ -204,7 +216,7 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
 
         % 2.2. Aerodynamic roughness
         % calculate friction velocity [m s-1] and aerodynamic resistances [s m-1]
-
+       
         resist_in.u   = max(meteo.u, .2);
         resist_in.L   = L;
         resist_in.LAI = canopy.LAI;
@@ -217,14 +229,16 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         resist_in.hc  = canopy.hc;
         resist_in.w   = canopy.leafwidth;
         resist_in.Cd  = canopy.Cd;
-
-        [resist_out]  = resistances(resist_in);
-
-        ustar = resist_out.ustar;
-        raa   = resist_out.raa;
-        rawc  = resist_out.rawc;
-        raws  = resist_out.raws;
-
+        resist_in.nl = canopy.nlayers;
+        resist_in.p = meteo.p; % in Kpa, for calculating kinematic viscosity of air.
+        resist_in.Ta = meteo.Ta; % In Kelivin , for calculating kinematic viscosity of air.
+        resist_in.Ts = Ts; %Soil temperature
+        resist_in.Tch = Tch;  % Leaf temperature (shaded)
+        resist_in.Tcu = Tcu; % leaf temperature (sunlit)
+       
+        [resist_out]  = resistancesparallel(resist_in);
+       
+        
         % 2.3. Biochemical processes
 
         % photosynthesis (A), fluorescence factor (F), and stomatal resistance (rcw), for shaded (1) and sunlit (h) leaves
@@ -286,7 +300,7 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         end
 
         Au                  = biochem_out.A; % Ag? or A?
-        Auu                  = biochem_out.Ag;   % GPP calculation.
+        Auu                 = biochem_out.Ag;   % GPP calculation.
         Ciu                 = biochem_out.Ci;
         Fu                  = biochem_out.eta;
         rcwu                = biochem_out.rcw;
@@ -299,20 +313,32 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         Pinu_Cab            = rad.Pnu_Cab;
         Rnh_PAR             = rad.Rnh_PAR;
         Rnu_PAR             = rad.Rnu_PAR;
-
+        
         % 2.4. Fluxes (latent heat flux (lE), sensible heat flux (H) and soil heat flux G
         % in analogy to Ohm's law, for canopy (c) and soil (s). All in units of [W m-2]
 
-        % soil.PSIs;
-        rss  = soil.rss;
-        rac     = (LAI + 1) * (raa + rawc);
-        ras     = (LAI + 1) * (raa + raws);
-
-        % iteration procedure to solve equation A27 of STEMMUS-SCOPE document (https://doi.org/10.5194/gmd-14-1379-2021) and get unknowns (PSI, LEch, LEcu)
+        % Resistances
+        ustar = resist_out.ustar;
+         % Sum of aerodynamic and boundary layer resistance canopy (shaded)
+        rach = resist_out.rac + resist_out.rbl; % Sum of aerodynamic and boundary layer resistance canopy (shaded)
+        racu  = permute(repmat(resist_out.rac + resist_out.rbl, [1, size(rcwu, 2), size(rcwu, 1)]),[3,2,1]) ; %same shape as rcwu 30*36*13
+       
+        rss   = soil.rss;  % Stomatal resistance of soil
+        % Sum of aerodynamic and boundary layer resistance soil
+        ras = [resist_out.rassh + resist_out.rbssh ; resist_out.rassu + resist_out.rbssu];
+% Since in Fs, [shaded , sunlight]
+        % rac     = (LAI + 1) * (raa + rawc); % why?
+        % ras     = (LAI + 1) * (raa + raws); % why? 
+        % rach     = raa + rawc; % why?
+        % ras     = raws; % why? 
+       
+        
         for i = 1:30
-            [lEch, Hch, ech, Cch, lambdah, sh]     = heatfluxes(rac, rcwh, Tch, ea, Ta, e_to_q, PSI, Ca, Cih, es_fun, s_fun);
-            [lEcu, Hcu, ecu, Ccu, lambdau, su]     = heatfluxes(rac, rcwu, Tcu, ea, Ta, e_to_q, PSI, Ca, Ciu, es_fun, s_fun);
+            
+            [lEch, Hch, ech, Cch, lambdah, sh]     = heatfluxes(rach, rcwh, Tch, ea, Ta, e_to_q, PSI, Ca, Cih, es_fun, s_fun);
+            [lEcu, Hcu, ecu, Ccu, lambdau, su]     = heatfluxes(racu, rcwu, Tcu, ea, Ta, e_to_q, PSI, Ca, Ciu, es_fun, s_fun);
             [lEs, Hs, ~, ~, lambdas, ss]           = heatfluxes(ras, rss, Ts, ea, Ta, e_to_q, PSIss, Ca, Ca, es_fun, s_fun);
+           
 
             % if any( ~isreal( Cch )) || any( ~isreal( Ccu(:) ))
             %  error('Heatfluxes produced complex values for CO2 concentration!')
@@ -321,13 +347,21 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
             %  if any( Cch < 0 ) || any( Ccu(:) < 0 )
             %     error('Heatfluxes produced negative values for CO2 concentration!')
             % end
-
+          
+            % Hsltot = Fs*Hs;
+            % Fc_new = (1 - Ps(1:end - 1)); % fraction of shaded
+            % Hcltot = LAI/nl .* (Fc_new.*Hch + (1-Fc_new).*equations.meanleaf(canopy, Hcu, 'angles', Ps)); % This is equivalent to Hctot. 
+            
+            % Matrix containing values for Ps of canopy, why divide by nl?
             % integration over the layers and sunlit and shaded fractions
+            
             Hstot       = Fs * Hs;
             Hctot       = LAI * (Fc * Hch + equations.meanleaf(canopy, Hcu, 'angles_and_layers', Ps));
+            
             Htot        = Hstot + Hctot;
+            
             %%%%%% Leaf water potential calculate
-            lambda1      = (2.501 - 0.002361 * Ta) * 1E6;
+            lambda1      = (2.501 - 0.002361 * Ta) * 1E6; % This latent heat constant 
             lEctot     = LAI * (Fc * lEch + equations.meanleaf(canopy, lEcu, 'angles_and_layers', Ps)); % latent heat leaves
             if isreal(lEctot) && lEctot < 1000 && lEctot > -300
             else
@@ -338,19 +372,33 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
             AA2 = 1 ./ (rsss + rrr + rxx);
             BB1 = AA1(~isnan(AA1));
             BB2 = AA2(~isinf(AA2));
-            PSI1 = (sum(BB1) - Trans) / sum(BB2);
-            if isnan(PSI1)
-                PSI1 = -1;
-            end
-            if ~isreal(PSI1)
-                PSI1 = -1;
-            end
-            if abs(PSI - PSI1) < 0.01 % closure criteria to break the iteration loop
+            PSI1 = (sum(BB1) - Trans) / sum(BB2); % updated 
+
+            % if isnan(PSI1)
+            %     warning('PSI is NaN!')
+            %      % Create a dynamic filename based on the value of k
+            %     filename = sprintf('/Users/prajzwal/PhD/debugtrial/debugtrial4_%d.mat', k);
+            %     SMC_trial = SoilVariables.Theta_LL(1:end - 1, 2);
+            %     save(filename, 'PSI1', 'PSIs', 'rsss', 'rrr', 'rxx', 'SMC_trial'); 
+            %     PSI1 = -1;
+            % end
+        
+            % if ~isreal(PSI1)
+            %     warning('PSI is a complex number!')
+            %     filename = sprintf('/Users/prajzwal/PhD/debugtrial/debugtrial4_%d.mat', k);
+            %     SMC_trial = SoilVariables.Theta_LL(1:end - 1, 2);
+            %     save(filename, 'PSI1', 'PSIs', 'rsss', 'rrr', 'rxx', 'SMC_trial'); 
+            %     PSI1 = -1;
+            % end
+
+            if abs(PSI - PSI1) < 0.01
                 break
+
             end
             PSI  = (PSI + PSI1) / 2;
         end
-
+        
+       
         %%%%%%%
         if SoilHeatMethod == 2
             G = 0.30 * Rns;
@@ -363,7 +411,7 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         L(L < -1E3)   = -1E3;                                                     % [1]
         L(L > 1E2)    =  1E2;                                                     % [1]
         L(isnan(L)) = -1;                                                       % [1]
-
+       
         % 2.6. energy balance errors, continue criterion and iteration counter
         EBerch      = Rnch - lEch - Hch;
         EBercu      = Rncu - lEcu - Hcu;
@@ -387,11 +435,16 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         if counter == 30
             Wc = 0.1;
         end
-
+       
+       
         % 2.7. New estimates of soil (s) and leaf (c) temperatures, shaded (h) and sunlit (1)
-        Tch         = Tch + Wc * EBerch ./ ((rhoa * cp) ./ rac + rhoa * lambdah * e_to_q .* sh ./ (rac + rcwh) + 4 * leafbio.emis * sigmaSB * (Tch + 273.15).^3);
-        Tcu         = Tcu + Wc * EBercu ./ ((rhoa * cp) ./ rac + rhoa * lambdau * e_to_q .* su ./ (rac + rcwu) + 4 * leafbio.emis * sigmaSB * (Tcu + 273.15).^3);
-        Ts          = Ts + Wc * EBers ./ (rhoa * cp ./ ras + rhoa * lambdas * e_to_q .* ss / (ras + rss) + 4 * (1 - soil.rs_thermal) * sigmaSB * (Ts + 273.15).^3); % Ts contains shaded soil temperature and sunlit soil temperature
+        Tch         = Tch + Wc * EBerch ./ ((rhoa * cp) ./ rach + rhoa * lambdah * e_to_q .* sh ./ (rach + rcwh) + 4 * leafbio.emis * sigmaSB * (Tch + 273.15).^3);
+        Tcu         = Tcu + Wc * EBercu ./ ((rhoa * cp) ./ racu + rhoa * lambdau * e_to_q .* su ./ (racu + rcwu) + 4 * leafbio.emis * sigmaSB * (Tcu + 273.15).^3);
+        Ts          = Ts + Wc * EBers ./ (rhoa * cp ./ ras + rhoa * lambdas * e_to_q .* ss ./ (ras + rss) + 4 * (1 - soil.rs_thermal) * sigmaSB * (Ts + 273.15).^3);
+        if ~isreal(Ts)
+                keyboard;
+        end 
+        % Ts contains shaded soil temperature and sunlit soil temperature
         Tch(abs(Tch) > 100) = Ta;
         Tcu(abs(Tcu) > 100) = Ta;
         Ts(abs(Ts) > 100) = Ta;
@@ -403,11 +456,13 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
         end
 
     end
+   
 
     iter.counter = counter;
     profiles.etah = Fh;
     profiles.etau = Fu;
-
+    
+   
     if SoilHeatMethod < 2
         Tsold(2:end, :) = soil.Tsold(1:end - 1, :);
         Tsold(1, :)  = Ts(:);
@@ -432,6 +487,7 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
                  '\n Energy balance error sunlit vegetation = %4.2f W m-2 ', ...
                  '\n Energy balance error shaded vegetation = %4.2f W m-2 ', ...
                  '\n Energy balance error soil              = %4.2f W m-2 '], maxEBercu, maxEBerch, maxEBers);
+
 
     end
 
@@ -464,13 +520,13 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     %% 5. Calculate spectrally integrated energy, water and CO2 fluxes
     % sum of all leaves, and average leaf temperature
     %     (note that averaging temperature is physically not correct...)
-
+    
     Rnctot          = LAI * (Fc * Rnch + equations.meanleaf(canopy, Rncu, 'angles_and_layers', Ps)); % net radiation leaves
     lEctot          = LAI * (Fc * lEch + equations.meanleaf(canopy, lEcu, 'angles_and_layers', Ps)); % latent heat leaves
     Hctot           = LAI * (Fc * Hch  + equations.meanleaf(canopy, Hcu, 'angles_and_layers', Ps)); % sensible heat leaves
     % Actot           = LAI*(Fc*Ah   + equations.meanleaf(canopy,Au  ,'angles_and_layers',Ps)); % photosynthesis leaves
     Actot           = LAI * (Fc * Ahh   + equations.meanleaf(canopy, Auu, 'angles_and_layers', Ps)); % photosynthesis leaves
-    Tcave           =     (Fc * Tch  + equations.meanleaf(canopy, Tcu, 'angles_and_layers', Ps)); % mean leaf temperature
+    Tcave           =  (Fc * Tch  + equations.meanleaf(canopy, Tcu, 'angles_and_layers', Ps)); % mean leaf temperature
     Pntot           = LAI * (Fc * Pinh + equations.meanleaf(canopy, Pinu, 'angles_and_layers', Ps)); % net PAR leaves
     Pntot_Cab       = LAI * (Fc * Pinh_Cab + equations.meanleaf(canopy, Pinu_Cab, 'angles_and_layers', Ps)); % net PAR leaves
     Rntot_PAR       = LAI * (Fc * Rnh_PAR  + equations.meanleaf(canopy, Rnu_PAR, 'angles_and_layers', Ps)); % net PAR leaves
@@ -533,9 +589,9 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     thermal.Ts    = Ts;       % [oC]                soil temperature, sunlit and shaded [2x1]
     thermal.Tcave = Tcave;    % [oC]                weighted average canopy temperature
     thermal.Tsave = Tsave;    % [oC]                weighted average soil temperature
-    thermal.raa   = raa;      % [s m-1]             total aerodynamic resistance above canopy
-    thermal.rawc  = rawc;     % [s m-1]             aerodynamic resistance below canopy for canopy
-    thermal.raws  = raws;     % [s m-1]             aerodynamic resistance below canopy for soil
+    thermal.raa   = resist_out.rar;      % [s m-1]             total aerodynamic resistance above canopy
+    thermal.rawc  = mean(rach);     % [s m-1]             aerodynamic resistance below canopy for canopy
+    thermal.raws  = resist_out.rawssh;     % [s m-1]             aerodynamic resistance below canopy for soil
     thermal.ustar = ustar;    % [m s-1]             friction velocity
     thermal.Tcu   = Tcu;
     thermal.Tch   = Tch;
@@ -568,7 +624,92 @@ function [iter, fluxes, rad, thermal, profiles, soil, RWU, frac, WaterStressFact
     % function Tnew = update(Told, Wc, innovation)
     %     Tnew        = Wc.*innovation + (1-Wc).*Told;
     % return
-
+    
     WaterStressFactor.soil = sfactor;
     WaterPotential.leaf = PSI;
-end
+    % Open the file for the first time (write mode)
+   % Profiles
+   
+    
+
+    fid = fopen('/home/khanalp/paper01/output/vMLWV/IT-Lav/anciliary_output.csv', 'a');  % 'a' mode to append; if file doesn't exist, it'll create one
+    
+    if fid == -1
+        error('Error opening the file for writing.');
+    end
+    
+    % Write the header only if KT == 1 and the file is empty
+    if ftell(fid) == 0  % Check if file is empty by checking the position of the file pointer
+        fprintf(fid, '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n', ...
+            'KT','u', 'L', 'LAI', 'z', 'h','w', ...
+            'ustar','u_h','u_s','d', ...
+            'rai','rar','rawssh', ...
+            'rassh', 'rassu', ...
+            'rbssh','rbssu',...
+            'Fsh','Tsh','Tsu','Tsave','Tcave', 'Rnssh','Rnssu','Hssh','Hssu','lEssh','lEssu','Gssh','Gssu');
+
+    end 
+    
+    fprintf(fid, '%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n', ...
+        KT,resist_in.u, resist_out.L, resist_in.LAI, resist_in.z, resist_in.hc, resist_in.w, ...
+        resist_out.ustar, resist_out.u_h ,resist_out.u_s,  resist_in.d, ...
+        resist_out.rai, resist_out.rar,resist_out.rawssh, ...
+        resist_out.rassh, resist_out.rassu, ...
+        resist_out.rbssh, resist_out.rbssu, ...
+        Fs(1), Ts(1), Ts(2), Tsave, Tcave, Rns(1), Rns(2), Hs(1), Hs(2), lEs(1), lEs(2), G(1), G(2));
+
+    
+    % Close the file after the operation
+    fclose(fid);
+   % Define output file paths
+    rac_file         = '/home/khanalp/paper01/output/vMLWV/IT-Lav/rac.csv';
+    rbl_file      = '/home/khanalp/paper01/output/vMLWV/IT-Lav/rbl.csv';
+    rcwh_file     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/rcwh.csv';
+    % rbcsh_file     = '/home/khanalp/paper01/output/vMLWV/IT-MBo/rbcsh.csv';
+    fraction_file    = '/home/khanalp/paper01/output/vMLWV/IT-Lav/fraction.csv';
+    profile_Hcu      = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Hcu.csv';
+    profile_Rncu     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Rncu.csv';
+    profile_lEcu     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_lEcu.csv';
+    profile_Tcu     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Tcu.csv';
+    profile_Hch      = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Hch.csv';
+    profile_Rnch     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Rnch.csv';
+    profile_lEch     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_lEch.csv';
+    profile_Tch     = '/home/khanalp/paper01/output/vMLWV/IT-Lav/profile_Tch.csv';
+
+
+    % Compute derived quantities
+    fraction = 1 - Ps(1:end - 1);  % shaded fraction [30x1]
+    Hlcu     = equations.meanleaf(canopy, Hcu,  'angles', Ps);   % [30x1]
+    Rnlcu    = equations.meanleaf(canopy, Rncu, 'angles', Ps);   % [30x1]Rnlcu    = equations.meanleaf(canopy, Rncu, 'angles', Ps);   % [30x1]
+    lElcu    = equations.meanleaf(canopy, lEcu, 'angles', Ps);   % [30x1]
+    Tlcu     = equations.meanleaf(canopy, Tcu, 'angles', Ps);   % [30x1]
+   
+    % Save all variables using the helper function
+    append_or_create_csv(rac_file,      resist_out.rac(:));
+    append_or_create_csv(rbl_file,   resist_out.rbl(:));
+    append_or_create_csv(fraction_file, fraction(:));
+    append_or_create_csv(profile_Hcu,   Hlcu(:));
+    append_or_create_csv(profile_Rncu,  Rnlcu(:));
+    append_or_create_csv(profile_lEcu,  lElcu(:));
+    append_or_create_csv(profile_Tcu,   Tlcu(:));
+    append_or_create_csv(profile_Hch,   Hch(:));
+    append_or_create_csv(profile_Rnch,  Rnch(:));
+    append_or_create_csv(profile_lEch,  lEch(:));
+    append_or_create_csv(profile_Tch,   Tch(:));
+    append_or_create_csv(rcwh_file, rcwh(:));
+    % append_or_create_csv(rbcsh_file, resist_out.rbcsh(:));
+
+    % if KT == 25
+    %     keyboard;
+    % end
+
+% Define utility function to append or create CSV
+function append_or_create_csv(file_path, column_data)
+    if isfile(file_path)
+        existing_data = readmatrix(file_path);
+        updated_data = [existing_data, column_data];
+    else
+        updated_data = column_data;
+    end
+    writematrix(updated_data, file_path);
+return

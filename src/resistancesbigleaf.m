@@ -1,4 +1,4 @@
-function [resist_out] = resistances(resist_in)
+function [resist_out] = resistancesbigleaf(resist_in)
     %
     %   function resistances calculates aerodynamic and boundary resistances
     %   for soil and vegetation
@@ -124,6 +124,7 @@ function [resist_out] = resistances(resist_in)
     %% resistances
 
     resist_out.uz0 = uz0;
+    resist_out.uh = uh;
     resist_out.ustar = ustar;
     rai = (z > zr) .* (1 ./ (kappa * ustar) .* (log((z - d) / (zr - d))  - ph_z   + ph_zr)); % W&V Eq 41
     rar = 1 ./ (kappa * ustar) .* ((zr - h) / (zr - d))      - phs_zr + phs_h; % W&V Eq 39
@@ -141,6 +142,7 @@ function [resist_out] = resistances(resist_in)
     rawc = rwc + rbc;
     raws = rws + rbs;
 
+    resist_out.L = L;            % stability parameter
     resist_out.raa  = raa;          % aerodynamic resistance above the canopy           W&V Figure 8.6
     resist_out.rawc = rawc;         % aerodynamic resistance within the canopy (canopy)
     resist_out.raws = raws;         % aerodynamic resistance within the canopy (soil)
